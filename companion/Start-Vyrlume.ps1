@@ -298,7 +298,11 @@ try {
     [void](Invoke-NativeCommand -FilePath $adb -Arguments ($adbArguments + @('reverse', "tcp:$Port", "tcp:$Port")))
     Write-LauncherLog "adb reverse is active for tcp:$Port on $selectedSerial."
 
-    $folder = [Uri]::EscapeDataString($resolvedWorkspace)
+    $folderPath = $resolvedWorkspace.Replace('\', '/')
+    if ($folderPath -match '^[A-Za-z]:/') {
+        $folderPath = "/$folderPath"
+    }
+    $folder = [Uri]::EscapeDataString($folderPath)
     $editorUrl = "http://127.0.0.1:$Port/?folder=$folder"
     $deepLink = 'vyrlume://connect?url={0}&name={1}' -f
         [Uri]::EscapeDataString($editorUrl), [Uri]::EscapeDataString('USB VS Code')

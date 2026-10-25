@@ -65,6 +65,21 @@ internal object RemoteWorkbenchRuntime {
                         html[data-vyrlume-section] .editor-group-container .editor-actions { display: none !important; }
                         html[data-vyrlume-section] .editor-group-container .tabs-and-actions-container,
                         html[data-vyrlume-section] .editor-group-container .tabs-container { max-width: 100% !important; }
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor > .content,
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .editor-group-container,
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .editor-instance,
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .editor-container,
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .gettingStartedContainer,
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .monaco-editor,
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .monaco-editor .overflow-guard {
+                            width: 100vw !important;
+                            max-width: 100vw !important;
+                            min-width: 0 !important;
+                        }
+                        html[data-vyrlume-section="EDITOR"] #workbench\\.parts\\.editor .monaco-editor .editor-scrollable {
+                            right: 0 !important;
+                            width: auto !important;
+                        }
                         html[data-vyrlume-section="TERMINAL"] #workbench\\.parts\\.panel > .composite.title { display: none !important; }
                         html[data-vyrlume-section="TERMINAL"] #workbench\\.parts\\.panel > .content {
                             width: 100vw !important;
