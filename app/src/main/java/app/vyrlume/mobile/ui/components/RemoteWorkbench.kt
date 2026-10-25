@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,27 +35,27 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.vyrlume.mobile.BuildConfig
+import app.vyrlume.mobile.data.IdeSection
 import app.vyrlume.mobile.data.ServerConnection
-import kotlinx.coroutines.delay
-import org.json.JSONObject
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun RemoteWorkbench(
     server: ServerConnection,
-    terminalMode: Boolean,
+    section: IdeSection,
     modifier: Modifier = Modifier,
 ) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loadedUrl by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var terminalWasRequested by remember { mutableStateOf(false) }
+    val currentSection by rememberUpdatedState(section)
 
     DisposableEffect(Unit) {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         onDispose {
             webView?.let { view ->
+                view.tag = null
                 view.stopLoading()
                 view.destroy()
             }
@@ -62,30 +63,9 @@ fun RemoteWorkbench(
         }
     }
 
-    LaunchedEffect(terminalMode, loading) {
-        if (!loading && error == null && (terminalMode || terminalWasRequested)) {
-            delay(350)
-            webView?.dispatchKeyEvent(
-                KeyEvent(
-                    0,
-                    0,
-                    KeyEvent.ACTION_DOWN,
-                    KeyEvent.KEYCODE_GRAVE,
-                    0,
-                    KeyEvent.META_CTRL_ON,
-                ),
-            )
-            webView?.dispatchKeyEvent(
-                KeyEvent(
-                    0,
-                    0,
-                    KeyEvent.ACTION_UP,
-                    KeyEvent.KEYCODE_GRAVE,
-                    0,
-                    KeyEvent.META_CTRL_ON,
-                ),
-            )
-            terminalWasRequested = terminalMode
+    LaunchedEffect(section, loading) {
+        if (!loading && error == null) {
+            webView?.let { RemoteWorkbenchRuntime.syncSection(it, section) }
         }
     }
 
@@ -104,9 +84,11 @@ fun RemoteWorkbench(
                         settings.allowContentAccess = false
                         settings.builtInZoomControls = true
                         settings.displayZoomControls = false
-                        settings.loadWithOverviewMode = true
-                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = false
+                        settings.useWideViewPort = false
                         settings.mediaPlaybackRequiresUserGesture = true
+                        isFocusable = true
+                        isFocusableInTouchMode = true
                         webChromeClient = object : WebChromeClient() {
                             override fun onPermissionRequest(request: PermissionRequest) {
                                 request.deny()
@@ -119,6 +101,7 @@ fun RemoteWorkbench(
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
+                                view?.let { RemoteWorkbenchRuntime.applyMobileLayout(it, currentSection) }
                                 loading = false
                             }
 
@@ -199,10 +182,7 @@ fun RemoteWorkbench(
         }
         CodingKeyboard(
             onText = { text ->
-                webView?.evaluateJavascript(
-                    "document.execCommand('insertText', false, ${JSONObject.quote(text)})",
-                    null,
-                )
+                webView?.let { RemoteWorkbenchRuntime.insertText(it, text) }
             },
             onMove = { delta ->
                 val keyCode = if (delta < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT

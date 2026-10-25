@@ -53,7 +53,6 @@ import app.vyrlume.mobile.ui.components.KeyboardRequest
 import app.vyrlume.mobile.ui.components.RemoteWorkbench
 import app.vyrlume.mobile.ui.screens.FilesScreen
 import app.vyrlume.mobile.ui.screens.PreviewScreen
-import app.vyrlume.mobile.ui.screens.RemoteInfoScreen
 import app.vyrlume.mobile.ui.screens.SourceControlScreen
 import app.vyrlume.mobile.ui.screens.TerminalScreen
 import app.vyrlume.mobile.ui.screens.WelcomeScreen
@@ -176,25 +175,16 @@ private fun WorkspaceScreen(state: VyrlumeUiState, viewModel: VyrlumeViewModel) 
 private fun WorkspaceContent(state: VyrlumeUiState, viewModel: VyrlumeViewModel) {
     if (state.workspaceKind == WorkspaceKind.REMOTE) {
         val server = state.activeServer ?: return
-        when (state.section) {
-            IdeSection.EDITOR, IdeSection.TERMINAL -> RemoteWorkbench(
-                server = server,
-                terminalMode = state.section == IdeSection.TERMINAL,
-            )
-            IdeSection.PREVIEW -> PreviewScreen(
+        if (state.section == IdeSection.PREVIEW) {
+            PreviewScreen(
                 port = state.previewPort,
                 remoteUrl = ServerUrl.previewUrl(server.url, state.previewPort),
                 onPort = viewModel::setPreviewPort,
             )
-            IdeSection.FILES -> RemoteInfoScreen(
-                title = "Files live in your workbench",
+        } else {
+            RemoteWorkbench(
                 server = server,
-                onBack = { viewModel.selectSection(IdeSection.EDITOR) },
-            )
-            IdeSection.SOURCE_CONTROL -> RemoteInfoScreen(
-                title = "Git lives in your workbench",
-                server = server,
-                onBack = { viewModel.selectSection(IdeSection.EDITOR) },
+                section = state.section,
             )
         }
         return
