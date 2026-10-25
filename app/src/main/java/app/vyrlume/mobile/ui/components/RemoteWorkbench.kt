@@ -10,6 +10,7 @@ import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +36,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.vyrlume.mobile.BuildConfig
 import app.vyrlume.mobile.data.IdeSection
 import app.vyrlume.mobile.data.ServerConnection
@@ -50,6 +55,9 @@ fun RemoteWorkbench(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val currentSection by rememberUpdatedState(section)
+    val currentLoading by rememberUpdatedState(loading)
+    val currentError by rememberUpdatedState(error)
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(Unit) {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
@@ -61,6 +69,22 @@ fun RemoteWorkbench(
             }
             webView = null
         }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (currentError != null) {
+                    loading = true
+                    error = null
+                    webView?.reload()
+                } else if (!currentLoading) {
+                    webView?.let { RemoteWorkbenchRuntime.syncSection(it, currentSection) }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(section, loading) {
@@ -112,6 +136,17 @@ fun RemoteWorkbench(
                             ) {
                                 if (request?.isForMainFrame == true) {
                                     error = failure?.description?.toString() ?: "Unable to load this server."
+                                    loading = false
+                                }
+                            }
+
+                            override fun onReceivedHttpError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                errorResponse: WebResourceResponse?,
+                            ) {
+                                if (request?.isForMainFrame == true) {
+                                    error = "The server returned HTTP ${errorResponse?.statusCode ?: "an error"}."
                                     loading = false
                                 }
                             }
@@ -177,6 +212,16 @@ fun RemoteWorkbench(
                         modifier = Modifier.padding(top = 12.dp),
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    Button(
+                        onClick = {
+                            loading = true
+                            error = null
+                            webView?.reload()
+                        },
+                        modifier = Modifier.padding(top = 16.dp),
+                    ) {
+                        Text("Retry connection")
+                    }
                 }
             }
         }
