@@ -1,0 +1,11 @@
+.gradle/
+.idea/
+.android-build/
+.kotlin/
+.toolchain/
+local.properties
+**/build/
+dist/
+*.iml
+.adoptium-jdk.json
+evidence/
