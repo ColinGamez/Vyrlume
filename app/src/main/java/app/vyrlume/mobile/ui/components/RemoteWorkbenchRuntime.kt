@@ -131,6 +131,134 @@ internal object RemoteWorkbenchRuntime {
         })();
     """.trimIndent()
 
+    private val terminalSizingScript = """
+        (() => {
+            if (window.__vyrlumeTerminalSizing) return;
+
+            const configured = new WeakMap();
+            const observed = new WeakSet();
+            let timer = 0;
+            let running = false;
+
+            const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+            const activeTerminal = () => {
+                const terminal = document.querySelector('.terminal-wrapper.active .terminal.focus') ||
+                    document.querySelector('.terminal.focus');
+                const host = terminal?.closest('.terminal-xterm-host');
+                const textarea = terminal?.querySelector('textarea');
+                if (!terminal || !host || !textarea || host.getBoundingClientRect().width < 40 ||
+                    host.getBoundingClientRect().height < 40) return null;
+                return { terminal, host, textarea };
+            };
+            const dimensions = target => {
+                const rect = target.host.getBoundingClientRect();
+                const style = getComputedStyle(target.textarea);
+                const characterWidth = parseFloat(style.width);
+                const lineHeight = parseFloat(style.lineHeight);
+                if (!(characterWidth > 0) || !(lineHeight > 0)) return null;
+                const columns = Math.max(8, Math.min(160, Math.floor((rect.width - 32) / characterWidth)));
+                const rows = Math.max(2, Math.min(60, Math.floor((rect.height - 16) / lineHeight)));
+                return { columns, rows, key: columns + 'x' + rows };
+            };
+            const key = (target, name, code, virtualKey) => {
+                for (const type of ['keydown', 'keyup']) {
+                    target.dispatchEvent(new KeyboardEvent(type, {
+                        key: name, code, keyCode: virtualKey, which: virtualKey,
+                        bubbles: true, cancelable: true,
+                    }));
+                }
+            };
+            const setInput = (input, value) => {
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            };
+            const quickInput = () => {
+                const widget = document.querySelector('.quick-input-widget');
+                const input = widget?.querySelector('input');
+                return widget && input && getComputedStyle(widget).display !== 'none' ? { widget, input } : null;
+            };
+            const waitFor = async (predicate, timeout = 1800) => {
+                const deadline = performance.now() + timeout;
+                while (performance.now() < deadline) {
+                    const value = predicate();
+                    if (value) return value;
+                    await delay(60);
+                }
+                throw new Error('VS Code terminal sizing prompt did not open');
+            };
+
+            const setDimensions = async (target, columns, rows) => {
+                target.textarea.focus({ preventScroll: true });
+                key(target.textarea, 'F1', 'F1', 112);
+                let quick = await waitFor(quickInput);
+                setInput(quick.input, '>Terminal: Set Fixed Dimensions');
+                await delay(180);
+                key(quick.input, 'Enter', 'Enter', 13);
+                quick = await waitFor(() => {
+                    const current = quickInput();
+                    return current?.widget.innerText.includes('Set Fixed Dimensions: Column') ? current : null;
+                });
+                setInput(quick.input, columns);
+                key(quick.input, 'Enter', 'Enter', 13);
+                quick = await waitFor(() => {
+                    const current = quickInput();
+                    return current?.widget.innerText.includes('Set Fixed Dimensions: Row') ? current : null;
+                });
+                setInput(quick.input, rows);
+                key(quick.input, 'Enter', 'Enter', 13);
+                await waitFor(() => !quickInput());
+            };
+            const configure = async () => {
+                if (running || document.documentElement.dataset.vyrlumeSection !== 'TERMINAL' || quickInput()) return;
+                const target = activeTerminal();
+                if (!target) return;
+                const size = dimensions(target);
+                if (!size) return;
+                const screen = target.terminal.querySelector('.xterm-screen');
+                const style = getComputedStyle(target.textarea);
+                const renderedCorrectly = screen &&
+                    Math.abs(screen.getBoundingClientRect().width - size.columns * parseFloat(style.width)) < 2 &&
+                    Math.abs(screen.getBoundingClientRect().height - size.rows * parseFloat(style.lineHeight)) < 2;
+                if (configured.get(target.terminal) === size.key && renderedCorrectly) return;
+                running = true;
+                try {
+                    // Force the real grid once after xterm initializes, then restore responsive sizing.
+                    await setDimensions(target, String(size.columns), String(size.rows));
+                    await setDimensions(target, '', '');
+                    configured.set(target.terminal, size.key);
+                    target.textarea.focus({ preventScroll: true });
+                } catch (error) {
+                    console.warn('Vyrlume terminal sizing skipped:', error);
+                    const quick = quickInput();
+                    if (quick) key(quick.input, 'Escape', 'Escape', 27);
+                    target.textarea.focus({ preventScroll: true });
+                } finally {
+                    running = false;
+                }
+            };
+            const schedule = () => {
+                clearTimeout(timer);
+                timer = setTimeout(configure, 700);
+            };
+            const scan = () => {
+                let foundNewTerminal = false;
+                document.querySelectorAll('.terminal-xterm-host').forEach(host => {
+                    if (!observed.has(host)) {
+                        observed.add(host);
+                        foundNewTerminal = true;
+                    }
+                });
+                if (foundNewTerminal) schedule();
+            };
+            const mutationObserver = new MutationObserver(scan);
+            const panel = document.getElementById('workbench.parts.panel');
+            if (!panel) return;
+            mutationObserver.observe(panel, { childList: true, subtree: true });
+            window.__vyrlumeTerminalSizing = { configure, schedule, configured };
+            scan();
+        })();
+    """.trimIndent()
+
     fun applyMobileLayout(view: WebView, section: IdeSection) {
         view.tag = section.name
         focus(view)
@@ -139,6 +267,7 @@ internal object RemoteWorkbenchRuntime {
             "document.documentElement.dataset.vyrlumeSection = '${section.name}';",
             null,
         )
+        view.evaluateJavascript(terminalSizingScript, null)
     }
 
     fun syncSection(view: WebView, section: IdeSection) {
@@ -247,7 +376,10 @@ internal object RemoteWorkbenchRuntime {
         }, 200)
         view.postDelayed({
             if (!isCurrent(view, IdeSection.TERMINAL)) return@postDelayed
-            view.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null)
+            view.evaluateJavascript(
+                "window.dispatchEvent(new Event('resize')); window.__vyrlumeTerminalSizing?.schedule();",
+                null,
+            )
         }, 900)
     }
 
@@ -277,9 +409,12 @@ internal object RemoteWorkbenchRuntime {
         view.evaluateJavascript(
             """
             (() => {
-                const terminals = Array.from(document.querySelectorAll('.terminal textarea'));
+                const terminals = Array.from(document.querySelectorAll('.terminal textarea')).filter(element => {
+                    const rect = element.closest('.terminal')?.getBoundingClientRect();
+                    return rect && rect.width > 0 && rect.height > 0;
+                });
                 const target = terminals.find(element => element.closest('.terminal.focus')) ||
-                    terminals.find(element => element.closest('.terminal.active')) || terminals[0];
+                    terminals.find(element => element.closest('.terminal-wrapper.active')) || terminals[0];
                 if (!target) return false;
                 target.focus({ preventScroll: true });
                 return document.activeElement === target;
